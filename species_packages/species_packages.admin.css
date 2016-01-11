@@ -1,0 +1,23 @@
+span.species-packages-delete-species
+{
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	background-image: url("./media/images/delete.png");
+	margin: 2px;
+}
+span.species-packages-move-left
+{
+	display: inline-block;
+	margin: 2px;
+}
+span.species-packages-move-right
+{
+	display: inline-block;
+	margin: 2px;
+}
+span.species-packages-list-entry
+{
+	margin-left: 20px;
+	white-space: nowrap;
+}

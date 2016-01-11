@@ -1,0 +1,264 @@
+<?php
+
+// PHP_VERSION_ID is available as of PHP 5.2.7, if our
+// version is lower than that, then emulate it
+if (!defined('PHP_VERSION_ID')) {
+    $version = explode('.', PHP_VERSION);
+
+    define('PHP_VERSION_ID', ($version[0] * 10000 + $version[1] * 100 + $version[2]));
+}
+
+/**
+ * Implementation of hook_permission.
+ * Valid permissions for this module
+ * @return array An array of valid permissions for the iform module
+ */
+function species_packages_permission() {
+  $retVal = array(
+    'admin species packages' => array( 'title' => t('Administer species packages settings') ),
+    'define species packages' => array( 'title' => t('Can define species packages') ),
+    'allocate species packages' => array( 'title' => t('Can select species packages to be used on data entry forms') ),
+    'modify species packages allocations' => array( 'title' => t('Can modify which species packages are used by a user, after initial selection') ),
+    'assign species packages role' => array( 'title' => t('Can assign the role to users which indicates completion of training') )
+  );
+  return $retVal;
+
+} // function species_packages_permission()
+
+/**
+ * Implementation of hook_menu.
+ */
+function species_packages_menu() {
+  $items = array();
+  // assume that the Iform config items exist, as this module dependant on it.
+  $items['admin/config/iform/species_packages_settings'] = array(
+    'title' => 'Species Package Settings',
+    'description' => 'The general settings for the Species Package module.',
+    'page callback' => 'species_packages_settings',
+    'access arguments' => array('admin species packages'),
+    'weight' => 0
+  );
+  $items['admin/config/iform/species_packages_mappings'] = array(
+    'title' => 'Species Package mappings',
+    'description' => 'Define the Species Package mappings, which are used in the IForm based forms.',
+    'page callback' => 'species_packages_packages',
+    'access arguments' => array('define species packages'),
+    'weight' => 0
+  );
+  return $items;
+}
+
+
+/**
+ * Menu callback that generates a page which allows settings to be specified.
+ */
+function species_packages_settings() {
+  module_load_include('inc', 'species_packages', 'species_packages.admin');
+  $form = drupal_get_form('species_packages_settings_form');
+  return $form;
+}
+
+/**
+ * Menu callback that generates a page which allows the species package mappings to be specified.
+ */
+function species_packages_packages() {
+  if (!iform_check_helper_config_exists()) {
+    drupal_set_message(check_plain(t("Please create the file helper_config.php in the !path folder on the server.",
+      array('!path' => iform_client_helpers_path()))), 'warning');
+    return t('');
+  }
+  module_load_include('inc', 'species_packages', 'species_packages.admin');
+  $form = drupal_get_form('species_packages_package_form');
+  require_once iform_client_helpers_path() . 'data_entry_helper.php';
+  handle_resources();
+  return $form;
+}
+
+/**
+ * Utility function to retrieve the survey a user has registered their Species Package against.
+ */
+function species_packages_get_survey($uid)
+{
+	$data = variable_get('species_packages_'.($uid), false);
+	if($data === false || $data == '') return false;
+	$data = explode(':', $data);
+	return $data[1];
+}
+
+/**
+ * Utility function to retrieve the Species Package registered for a
+ * User/Survey combination
+ */
+function species_packages_get_package($uid, $survey)
+{
+	$data = variable_get('species_packages_'.($uid), false);
+	if($data === false || $data == '') return false;
+	$data = explode(':', $data);
+	if($data[0] == $survey) return $data[1];
+	return false;
+}
+
+/**
+ * Utility function to retrieve the list of taxon IDs in the Species Package
+ * registered for a User/Survey combination
+ */
+function species_packages_get_species($uid, $survey)
+{
+	$package = species_packages_get_package($uid, $survey);
+	if($package === false) return false;
+	$r = array();
+	$species = db_query('SELECT indicia_taxa_taxon_list_id, taxon, common FROM {species_packages_species} WHERE species_package_sid = :islid ORDER BY roworder', array(':islid' => ($package)));
+	foreach ($species as $taxon)
+		$r[] = $taxon->indicia_taxa_taxon_list_id;
+	return $r;
+}
+
+/**
+ * Utility function to retrieve the Occurrence Attribute ID assigned to a
+ * taxon in the Species Package registered for a User/Survey combination
+ */
+function species_packages_get_species_attribute($uid, $survey, $ttlid)
+{
+	$package = species_packages_get_package($uid, $survey);
+	if($package === false) return false;
+	$r = array();
+	$species = db_query('SELECT indicia_occurrence_attribute_id FROM {species_packages_species} '.
+							'WHERE species_package_sid = :islid '.
+							'AND indicia_taxa_taxon_list_id = :ittlid',
+						array(':islid' => ($package), ':ittlid' => $ttlid));
+	foreach ($species as $taxon)
+		return $taxon->indicia_occurrence_attribute_id;
+	return false;
+}
+
+
+/**
+ * Implementation of hook_user_profile_form_alter.
+ * Build Additional Form elements to allow a user to choose the Species Packages
+ * for the surveys.
+ */
+function species_packages_form_user_profile_form_alter(&$form, &$form_state) {
+    // might be viewing for another user, so dig out the user ID.
+    $account = $form['#user']; // the person the record applies to
+    global $user; // the person looking at the record
+
+    iform_load_helpers(array('data_entry_helper'));
+    $readAuth = data_entry_helper::get_read_auth(variable_get('indicia_website_id', ''), variable_get('indicia_password', ''));
+    if (isset($form['field_location']))
+      $lang = $form['field_location']['#language'];
+    else 
+      $lang = LANGUAGE_NONE; // default undefined
+
+  	if ($form['#user_category'] == 'account') {
+		$form['#validate'][] = 'species_packages_user_profile_form_validate';
+		$form['#submit'][] = 'species_packages_user_profile_form_submit';
+	    $form['species_mappings'] = array(
+    	   	'#type' => 'fieldset',
+        	'#title' => t('Species Package Selection'),
+	        '#weight' => 4
+    	);
+	    if(!user_access('allocate species packages', $account)) {
+  			if(user_access('assign species packages role', $user))
+  				$form['species_mappings']['assign-role'] = array(
+  					'#type' => 'checkbox',
+	  				'#value' => false,
+					'#title' => t('Assign Trained Role'),
+					'#title_display' => 'before'
+				);
+	        else
+    	    	$form['species_mappings']['message'] = array(
+       				'#markup' => '<p>'.'The Species Packages can only be set for a user after they have been given the appropriate training, and been given permssion to do so.'.'</p>'
+	    		);
+    	    return;
+		}
+
+  		if($account->uid != 1 && user_access('assign species packages role', $user))
+  			$form['species_mappings']['deassign-role'] = array(
+  				'#type' => 'checkbox',
+	  			'#value' => false,
+				'#title' => t('Deassign Trained Role'),
+				'#title_display' => 'before'
+			);
+
+		$rows = data_entry_helper::get_population_data(array(
+ 			'table' => 'survey',
+ 			'extraParams' => $readAuth + array('website_id' => variable_get('indicia_website_id', '')),
+			'nocache' => true
+		));
+		$options = array();
+ 		foreach ($rows as $row) {
+   			$results = db_query('SELECT * FROM {species_packages} WHERE indicia_survey_id = :ISID ORDER BY sid', array(':ISID' => $row['id']));
+    		foreach ($results as $result) {
+ 				$description = array();
+			  	$species = db_query('SELECT indicia_taxa_taxon_list_id, taxon, common FROM {species_packages_species} WHERE species_package_sid = :islid ORDER BY roworder', array(':islid' => ($result->sid)));
+				foreach ($species as $taxon)
+					$description[] = ($taxon->common).' &lt;<i>'.$taxon->taxon.'</i>&gt;';
+   				$options[$row['id'].':'.($result->sid)] = '&quot;'.$row['title'].'&quot; Species Package &quot;'.$result->package_name.'&quot; ('.implode(', ', $description).')';
+  			} 
+  		}
+
+		$default = variable_get('species_packages_'.($account->uid));
+		if(count($options) > 0) {
+  			if($default === false || $default == '' || user_access('modify species packages allocations', $user)) {
+  				$form['species_mappings']['species-packages-pick'] = array(
+  						'#type' => 'radios',
+ 						'#options' => $options
+				);
+				if($default !== false)
+					$form['species_mappings']['species-packages-pick']['#default_value'] = $default;
+			} else {
+				$form['species_mappings']['message'] = array(
+       				'#markup' => '<p>'.'You have chosen '.$options[$default].'. If you wish to change this please contact your Hub Administrator'.'</p>'
+		    	);
+		    	$form['species_mappings']['species-packages-pick'] = array(
+  					'#type' => 'hidden',
+	  				'#value' => $default
+				);
+		    }
+		} else
+			$form['species_mappings']['message'] = array(
+       			'#markup' => '<p>'.'There are currently no Species Packages available.'.'</p>'
+		   	);
+    }
+    handle_resources();
+}
+
+/** 
+ * Implement hook_validate.
+ * Checks the Species Package selections are valid.
+ * @param array $form 		
+ * @param array $form_state
+ */
+function species_packages_user_profile_form_validate($form, $form_state) {
+	// Possible checks?
+	// Copy inputs to values?
+}
+
+/** 
+ * Implement hook_submit.
+ * Submit the Species Package selections.
+ * @param array $form 		
+ * @param array $form_state
+ */
+function species_packages_user_profile_form_submit($form, &$form_state) {
+	// TODO move inputs to values..
+    $account = $form['#user'];
+    $data = '';
+    $role = user_role_load_by_name(variable_get('species_packages_setting_training_role'));
+
+    if(isset($form_state["input"]["deassign-role"])) {
+		db_delete('users_roles')
+			->condition('uid', $account->uid)
+			->condition('rid', $role->rid)
+			->execute();
+        $query = db_insert('users_roles')->fields(array('uid', 'rid'));
+    } else if(isset($form_state["input"]["assign-role"])) {
+        db_insert('users_roles')
+        	->fields(array('uid', 'rid'))
+        	->values(array('uid' => $account->uid, 'rid' => $role->rid))
+			->execute();
+    } else {
+		$data = $form_state["input"]['species-packages-pick'];
+	}
+	variable_set('species_packages_'.($account->uid), $data);
+}

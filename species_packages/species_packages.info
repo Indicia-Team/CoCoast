@@ -1,0 +1,7 @@
+; $Id$
+name = Species Packages
+description = A module providing additional Drupal functionality to allow user selection of Species Packages.
+core = 7.x
+version = "7.x-1.0"
+package = "Indicia"
+dependencies[] = iform

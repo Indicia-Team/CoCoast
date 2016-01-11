@@ -1,0 +1,105 @@
+<?php 
+/**
+* @file
+* Install, update, and uninstall functions for the iform module.
+*/
+
+/**
+ * Implementation for hook_schema. Declares the tables that are required for storing
+ * Species Package data.
+ */
+function species_packages_schema() {
+
+  $schema['species_packages'] = array(
+    'description' => 'Table storing species packages',
+    'fields' => array(
+      'sid' => array(
+        'description' => 'The primary identifier for a species package',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE
+      ),
+      'indicia_survey_id' => array(
+        'description' => 'The Indicia Survey_id that this species package is to be used in conjunction with',
+        'type' => 'int',
+        'not null' => TRUE
+      ),
+      'package_name' => array(
+        'description' => 'Name of species package',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE
+      ),
+      'in_use' => array(
+        'description' => 'Is this record currently available for use by the users',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 1
+      ),
+      'deleted' => array(
+        'description' => 'Logically Deleted',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0
+      )
+    ),
+    'primary key' => array('sid')
+  );
+
+  $schema['species_packages_species'] = array(
+    'description' => 'Table storing the species on each species package',
+    'fields' => array(
+      'species_package_sid'=> array(
+        'description' => 'A foreign key to the species package record that this species entry belongs to.',
+        'type' => 'int',        
+        'not null' => TRUE
+      ),
+      'roworder' => array(
+        'description' => 'The row for a taxon entry within a species package.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE
+      ),
+      'indicia_taxa_taxon_list_id' => array(
+        'description' => 'A psuedo foreign key to the Indicia taxa_taxon_list entry for this species',
+        'type' => 'int',
+        'not null' => TRUE
+      ),
+      'indicia_occurrence_attribute_id' => array(
+        'description' => 'A psuedo foreign key to the Indicia occurrence_attribute entry to be used for this species-package combination',
+        'type' => 'int',
+        'not null' => TRUE
+      ),
+      'taxon' => array(
+        'description' => 'Taxon name included for caching purposes',
+        'type' => 'varchar',
+        'length' => 255,
+        'default' => ''
+      ),
+      'common' => array(
+        'description' => 'Common name included for caching purposes',
+        'type' => 'varchar',
+        'length' => 255,
+        'default' => ''
+      )
+    ),
+    'primary key' => array('species_package_sid','roworder')
+  );
+
+  return $schema;
+}
+
+/**
+ * Implementation for hook_install.
+ */
+function species_packages_install() {
+}
+
+/**
+ * Implementation for hook_uninstall.
+ */
+function species_packages_uninstall() {
+  	$results = db_query('SELECT name FROM {variable} WHERE name LIKE \'species_packages_%\'');
+	foreach ($results as $result)
+	  variable_del($result->name);
+}
