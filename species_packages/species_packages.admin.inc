@@ -11,6 +11,12 @@
  * Used both in the installation profile as an install task, and provided on the admin menu.
  */
 function species_packages_settings_form($form, &$form_state, $url='', $submit_handler='') {
+	$form['active'] = array(
+			'#type' => 'checkbox',
+			'#title' => t('Selection in user accounts active'),
+			'#default_value' => variable_get('species_packages_setting_active'),
+			'#description' => 'Ticked if the ability to set the species packages within the user accounts is active. This allows the species packages to be set up before being made available to the users.'
+	);
 	$form['trained-role'] = array(
 			'#type' => 'textfield',
 			'#title' => t('Trained Role'),
@@ -65,6 +71,7 @@ function species_packages_settings_form_validate($form, $form_state) {
 function species_packages_settings_form_submit($form, &$form_state) {
 	variable_set('species_packages_setting_training_role', $form_state["values"]["trained-role"]);
 	variable_set('species_packages_setting_taxon_lists', $form_state["values"]["taxon-lists"]);
+	variable_set('species_packages_setting_active', $form_state["values"]["active"]);
 	drupal_set_message(t('Species Package settings saved.'));
 }
 
@@ -147,12 +154,17 @@ function species_packages_package_form($form, &$form_state, $url='', $submit_han
   			'#markup' => '<input' . drupal_attributes($element['#attributes']) . ' />'
   	);
   }
+  if(count($rows) == 0) {
+  	$form['nothing'] = array(
+  			'#markup' => '<p>There are no surveys currently assigned to the Indicia Website record.</p>'
+  	);
+  }
   $form['continue'] = array(
-    '#type' => 'submit', 
-    '#value' => t('Save'),
-    '#validate' => array('species_packages_package_form_validate'),
+    	'#type' => 'submit', 
+	    '#value' => t('Save'),
+	    '#validate' => array('species_packages_package_form_validate'),
   );
-  
+
   // Note that #action is set to the url passed through from
   // installer, ensuring that it points to the same page, and
   // #redirect is FALSE to avoid broken installer workflow.

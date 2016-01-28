@@ -1,0 +1,8 @@
+.species-grid tr td {
+    margin: 2px;
+    padding: 2px;
+    border: thin solid;
+}
+.species-grid tr td input, .species-grid tr td select {
+    background-color: #f4f4f4;
+}
