@@ -32,7 +32,9 @@ require_once 'includes/form_generation.php';
 class iform_cocoast_transect_quadrat_input_sample {
 
   private static $sampleId;
-	
+  private static $occurrenceId;
+  private static $readOnly;
+  
   /**
    * Return the form metadata. Note the title of this method includes the name of the form file. This ensures
    * that if inheritance is used in the forms, subclassed forms don't return their parent's form definition.
@@ -69,6 +71,15 @@ class iform_cocoast_transect_quadrat_input_sample {
           'group'=>'General Form Settings',
           'siteSpecific'=>true
         ),
+      		array(
+      				'name'=>'edit_permission',
+      				'caption'=>'Permission required for editing other people\'s data',
+      				'description'=>'Set to the name of a permission which is required in order to be able to edit other people\'s data.',
+      				'type'=>'text_input',
+      				'required'=>false,
+      				'default'=>'indicia data admin'
+      		),
+      		
         array(
           'name'=>'sample_tab_label',
           'caption'=>'Sample Tab Title',
@@ -151,6 +162,15 @@ class iform_cocoast_transect_quadrat_input_sample {
           'description'=>'A list of additional options to pass through to custom attributes, one per line. Each option should be specified as '.
               'the attribute name followed by | then the option name, followed by = then the value. For example, smpAttr:1|class=control-width-5.',
           'type'=>'textarea',
+          'group'=>'General Form Settings',
+          'required'=>false,
+          'siteSpecific'=>true
+        ),
+        array(
+          'name'=>'remove_options',
+          'caption'=>'Remove Options',
+          'description'=>'Comma separated list of option IDs to be removed from attribute drop down/radio lists.',
+          'type'=>'string',
           'group'=>'General Form Settings',
           'required'=>false,
           'siteSpecific'=>true
@@ -255,15 +275,16 @@ class iform_cocoast_transect_quadrat_input_sample {
 //    if (!function_exists('module_exists') || !module_exists('iform_ajaxproxy'))
 //      return 'This form must be used in Drupal with the Indicia AJAX Proxy module enabled.';
     if (!function_exists('module_exists') || !module_exists('easy_login'))
-      return 'This form must be used in Drupal with the Easy Login module enabled.';
+      return 'FATAL INTERNAL CONFIGURATION ERROR: This form must be used in Drupal with the Easy Login module enabled.';
     if (!function_exists('module_exists') || !module_exists('species_packages'))
-    	return 'This form must be used in Drupal with the Indicia species_packages module enabled.';
+      return 'FATAL INTERNAL CONFIGURATION ERROR: This form must be used in Drupal with the custom species_packages module enabled.';
 
     $r = (isset($response['error']) ? data_entry_helper::dump_errors($response) : '');
     iform_load_helpers(array('map_helper','report_helper'));
     $auth = data_entry_helper::get_read_write_auth($args['website_id'], $args['password']);
 
     self::$sampleId = false;
+    self::$occurrenceId = false;
     if (isset(data_entry_helper::$entity_to_load['sample:id']) && data_entry_helper::$entity_to_load['sample:id'] != "") {
     	// have just posted a (failed) edit to an existing parent sample.
     	self::$sampleId = data_entry_helper::$entity_to_load['sample:id'];
@@ -274,15 +295,44 @@ class iform_cocoast_transect_quadrat_input_sample {
 		// have just successfully posted either a new parent sample, or an update to an existing one.
 		self::$sampleId = $response['outer_id'];
  		data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
-    } else if(isset($_GET['sample_id'])) {
+    } else if(isset($_GET['sample_id']) && intval($_GET['sample_id']) == $_GET['sample_id']) {
     	self::$sampleId = $_GET['sample_id'];
     	data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
     } else {
     	self::$sampleId = null;
     }
+    
+    if(isset($_GET['occurrence_id']) && intval($_GET['occurrence_id']) == $_GET['occurrence_id']) {
+    	self::$occurrenceId = $_GET['occurrence_id'];
+    	if(self::$sampleId == null) { // fill in the sample_id from the occurrence if don't already have it
+	    	$occurrence = data_entry_helper::get_population_data(array(
+    			'table' => 'occurrence',
+    			'extraParams' => $auth['read'] + array('view'=>'detail','id'=>self::$occurrenceId)
+ 			));
+    		if(count($occurrence) == 1) {
+    			$subsample = data_entry_helper::get_population_data(array(
+    				'table' => 'sample',
+    				'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$occurrence[0]['sample_id'])
+	    		));
+    	    	if(count($subsample) == 1) {
+    	    		self::$sampleId = $subsample[0]['parent_id'];
+    				data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
+    	    	}
+    		}
+    	}
+    }
 
     if (isset(data_entry_helper::$entity_to_load['sample:survey_id']) && data_entry_helper::$entity_to_load['sample:survey_id'] != $args['survey_id']) {
-    	return "FATAL ERROR: survey_id on sample record (".data_entry_helper::$entity_to_load['sample:survey_id'].") does not match form (".$args['survey_id'].").<br/>";
+    	drupal_set_message(t('The data entry form you have selected to use is configured for a particular survey:').
+    					' ID '.$args['survey_id'].' '.
+    					t('The sample you have chosen to view is not assigned to this survey.'), 'error');
+    	drupal_goto('<front>');
+    }
+    if (isset(data_entry_helper::$entity_to_load['sample:parent_id']) &&
+    		data_entry_helper::$entity_to_load['sample:parent_id'] != '' &&
+    		data_entry_helper::$entity_to_load['sample:parent_id'] !== null) {
+    	drupal_set_message(t('An attempt has been made to access a non top level sample.'));
+    	drupal_goto('<front>');
     }
     
     $survey = data_entry_helper::get_population_data(array(
@@ -290,16 +340,30 @@ class iform_cocoast_transect_quadrat_input_sample {
     	'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$args['survey_id'],'website_id'=>$args['website_id'])
     ));
     if(count($survey) != 1)
-    	return "FATAL ERROR: Supplied survey_id value (".$args['survey_id'].") is not valid survey for this website.<br/>";
+    	return "FATAL INTERNAL CONFIGURATION ERROR: Supplied form survey_id value (".$args['survey_id'].") is not valid survey for this website (".$args['website_id'].").<br/>";
     $surveyTitle = $survey[0]['title'];
 
-    if(($packages = species_packages_get_packages($user->uid, $args['survey_id'])) === false)
-    	return "FATAL ERROR: You (User ID ".($user->uid).") have not selected a Species Package for survey &quot;".$surveyTitle."&quot; (Survey ID ".($args['survey_id']).") in your Account settings.<br/>";
+    // may need to override this check in future if sampleID is set.
+    // TODO if viewing an existing, and the user is not the originator: view in Read only mode.
+	if(self::$sampleId == null) {
+    	$packages = species_packages_get_packages($user->uid, $args['survey_id']);
+    	if($packages === false || (is_array($packages) && count($packages)==0)) {
+    		drupal_set_message(t('You have not yet selected a species package that is compatible with survey').' : &quot;'.$surveyTitle.'&quot;', 'error');
+    		drupal_set_message(str_replace('#link#','<a href="'.url('user/' . $user->uid . '/edit').'">'.t('this link').'</a>',
+    				t('You can set the species package on your user account page, which can be accessed using #link#. If you have already selected a species package, and wish to add another or wish to change your selection, please contact your Hub Manager.')));
+    		drupal_goto('<front>');
+    	}
+		self::$readOnly = false;
+	} else { // TODO add management edit permission.
+		self::$readOnly = (data_entry_helper::$entity_to_load['sample:created_by_id'] != hostsite_get_user_field('indicia_user_id')) &&
+    						(empty($args['edit_permission']) || !hostsite_user_has_permission($args['edit_permission']));
+	}
+	if(self::$readOnly)
+		drupal_set_message(t('In order to save changes to existing records, you must either be the creator of the entry, or have been given the appropriate permission.'));
+		
+	// In readonly mode, the forms are replaced by divs and there are no save buttons.
 
-//    if(($package = species_packages_get_species($user->uid, $args['survey_id'])) === false) // TODO add package
-//    	return "FATAL ERROR: You (User ID ".($user->uid).") have not selected a Species Package for survey &quot;".$surveyTitle."&quot; (Survey ID ".($args['survey_id']).") in your Account settings.<br/>";
-//    if(count($package) === 0)
-//    	return "FATAL ERROR: The species package for &quot;".$surveyTitle."&quot; in your Account settings has no taxa assigned to it.<br/>";
+//    $r .= '<span style="display:none;">'.print_r($packages,true).'</span>';
     
     $attributes = data_entry_helper::getAttributes(array(
     		'id' => self::$sampleId,
@@ -314,11 +378,13 @@ class iform_cocoast_transect_quadrat_input_sample {
     
     $packageAttr = self::extract_package_attr($attributes, true);
     if (!$packageAttr) {
-    	return "FATAL ERROR: This form must be used with a survey which has a &#x22;Species Package&#x22; sample attribute defined for it (integer, required on parent).<br/>";
+    	return "FATAL INTERNAL CONFIGURATION ERROR: This form must be used with a survey which has a &#x22;Species Package&#x22; sample attribute defined for it (integer, required on parent).<br/>";
     }
     
+    self::_remove_options($args);
+    
     if(isset(data_entry_helper::$entity_to_load['sample:id']))
-        $r .= "<h2>".data_entry_helper::$entity_to_load['sample:location_name']." on ".data_entry_helper::$entity_to_load['sample:date']."</h2>\n";
+        $r .= "<h2>".data_entry_helper::$entity_to_load['sample:location_name']." on ".data_entry_helper::$entity_to_load['sample:date'] . (self::$readOnly ? ' '.lang::get('READ ONLY') : '') . "</h2>\n";
     $r .= "<div id=\"tabs\">\n";
     $tabs = array();
     $smpTab = self::get_sample_tab($args, $nid, $auth, $attributes, $packageAttr);
@@ -330,8 +396,11 @@ class iform_cocoast_transect_quadrat_input_sample {
     if($occTab != "")
     	$tabs['#media'] = t($args['media_tab_label']);
     $r .= data_entry_helper::tab_header(array('tabs'=>$tabs));
-    data_entry_helper::enable_tabs(array('divId'=>'tabs','style'=>'Tabs'));
+    data_entry_helper::enable_tabs(array('divId'=>'tabs',
+    									'style'=>'Tabs',
+    									'active'=>($occTab != "" && self::$occurrenceId ? 'occurrences' : 'sample')));
     $r .= $smpTab.$occTab.$mediaTab.'</div>';
+    
     return $r;
   }
 
@@ -343,7 +412,7 @@ class iform_cocoast_transect_quadrat_input_sample {
    * @param object $auth The full read-write authorisation.
    * @return HTML.
    */
-  public static function get_sample_tab($args, $nid, $auth, $attributes, $packageAttr) {
+  private static function get_sample_tab($args, $nid, $auth, $attributes, $packageAttr) {
     global $user;
 
     if (isset(data_entry_helper::$entity_to_load['sample:date']) && preg_match('/^(\d{4})/', data_entry_helper::$entity_to_load['sample:date'])) {
@@ -375,7 +444,7 @@ class iform_cocoast_transect_quadrat_input_sample {
 
     // we pass through the read auth. This makes it possible for the get_submission method to authorise against the warehouse
     // without an additional (expensive) warehouse call, so it can get subsample details.
-    $r = '<form method="post" id="sample">' .
+    $r = (self::$readOnly ? '<div id="sample">' : '<form method="post" id="sample">') .
 			$auth['write'] .
 			'<input type="hidden" name="read_nonce" value="'.$auth['read']['nonce'].'"/>' .
 			'<input type="hidden" name="read_auth_token" value="'.$auth['read']['auth_token'].'"/>' .
@@ -414,8 +483,7 @@ class iform_cocoast_transect_quadrat_input_sample {
 					'readAuth' => $auth['read']
 				)) .
 			map_helper::map_panel($options, $olOptions) .
-			'<br/><input type="submit" value="'.lang::get('Save').'" />' .
-			'</form>';
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
 
     data_entry_helper::enable_validation('sample');
     return $r;
@@ -438,7 +506,6 @@ class iform_cocoast_transect_quadrat_input_sample {
   private static function _build_package_control($args, $packageAttr) {
   	global $user;
 
-  	// If the sample has already been created then just display the name, but on Occurrnce tab.
   	if (isset(data_entry_helper::$entity_to_load['sample:id']) && data_entry_helper::$entity_to_load['sample:id'] != "")
   		return '<input type="hidden" name="'.$packageAttr['fieldname'].'" value="'.$packageAttr['default'].'">';
   		
@@ -462,6 +529,21 @@ class iform_cocoast_transect_quadrat_input_sample {
   	}
   }
 
+  // Provide a capability to restrict the options shown in a drop down attribute.
+  // This allows the same attribute to be used across multiple surveys within same website
+  private static function _remove_options($args) {
+	if(isset($args['remove_options']) && $args['remove_options']!='') {
+		$parts = explode(',',$args['remove_options']);
+		foreach($parts as $part) {
+	  		data_entry_helper::$javascript .= "
+(function ($) {
+	$('input:radio[value=".$part."]').closest('li').remove();
+  	$('option[value=".$part."]').remove();
+})(jQuery);\n";
+		}
+	}
+  }
+  
   /**
    * Return the generated output for the species grid tab.
    * @param array $args List of parameter values passed through to the form depending on how the form has been configured.
@@ -470,7 +552,7 @@ class iform_cocoast_transect_quadrat_input_sample {
    * @param object $auth The full read-write authorisation.
    * @return HTML.
    */
-  public static function get_occurrences_tab($args, $nid, $auth, $packageAttr) {
+  private static function get_occurrences_tab($args, $nid, $auth, $packageAttr) {
     global $user;
     global $indicia_templates;
     // initially not ajax due to uncertainty over mandatory status of sample attributes.
@@ -493,7 +575,6 @@ class iform_cocoast_transect_quadrat_input_sample {
       'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$parentSampleId,'deleted'=>'f'),
       'nocache' => true
     ));
-    // TODO put in checks to ensure that sample survey matches $args, and sample exists, parent_id is NULL
     $sample=$sample[0];
     $date=$sample['date_start'];
     
@@ -538,13 +619,16 @@ class iform_cocoast_transect_quadrat_input_sample {
     $o = data_entry_helper::get_population_data(array(
         'report' => 'reports_for_prebuilt_forms/UKBMS/ukbms_occurrences_list_for_parent_sample',
         'extraParams' => $auth['read'] + array('sample_id'=>$parentSampleId,'survey_id'=>$args['survey_id'],'date_from'=>'','date_to'=>'','taxon_group_id'=>'',
-            'smpattrs'=>'', 'occattrs'=>implode(',',array_keys($occ_attributes))),
+            'smpattrs'=>'', 'occattrs'=>implode(',',array_keys($occ_attributes)), 'orderby' => 'o.id'),
         // don't cache as this is live data
         'nocache' => true
     ));
     // build an array of occurrence and attribute data keyed for easy lookup
     $occurrences = array();
-    $taxalist = self::_get_species($user->uid, $args, $packageAttr['default']);
+    if(self::$readOnly)
+    	$taxalist = array();
+    else
+	    $taxalist = self::_get_species($user->uid, $args, $packageAttr['default']);
     foreach($o as $occurrence) {
         $occurrences[$occurrence['sample_id'].':'.$occurrence['taxa_taxon_list_id']] = array(
           'ttl_id'=>$occurrence['taxa_taxon_list_id'],
@@ -561,11 +645,11 @@ class iform_cocoast_transect_quadrat_input_sample {
     
     $limit1 = $args['sample_attribute_id_1_limit'];
     if(!in_array($args['sample_attribute_id_1'], array_keys($attributesIdx)))
-    	return "CONFIGURATION ERROR: Supplied primary sample loop attribute (ID ".$args['sample_attribute_id_1'].") is not in the list of sample attributes configured for this survey (Survey ID ".$args['survey_id'].", attribute IDs ".implode(',', array_keys($attributes))."). Ensure that the Indicia Cache is cleared.<br/>";
+    	return "INTERNAL CONFIGURATION ERROR: Supplied primary sample loop attribute (ID ".$args['sample_attribute_id_1'].") is not in the list of sample attributes configured for this survey (Survey ID ".$args['survey_id'].", attribute IDs ".implode(',', array_keys($attributes))."). Ensure that the Indicia Cache is cleared.<br/>";
     $limit2 = $args['sample_attribute_id_2_limit'];
     if(isset($args['sample_attribute_id_2']) && $args['sample_attribute_id_2']!= "") {
     	if(!in_array($args['sample_attribute_id_2'], array_keys($attributesIdx)))
-	    	return "CONFIGURATION ERROR: Supplied optional secondary sample loop attribute (ID ".$args['sample_attribute_id_2'].") is not in the list of sample attributes configured for this survey (Survey ID ".$args['survey_id'].", attribute IDs ".implode(',', array_keys($attributes))."). Ensure that the Indicia Cache is cleared.<br/>";
+	    	return "INTERNAL CONFIGURATION ERROR: Supplied optional secondary sample loop attribute (ID ".$args['sample_attribute_id_2'].") is not in the list of sample attributes configured for this survey (Survey ID ".$args['survey_id'].", attribute IDs ".implode(',', array_keys($attributes))."). Ensure that the Indicia Cache is cleared.<br/>";
     } else $limit2 = 1;
 
 	foreach($subSamples as $subSample){
@@ -581,7 +665,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'table' => 'taxa_taxon_list',
     		'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$taxalist)));
 
-    $r = '<form method="post" id="occurrences">' .
+    $r = (self::$readOnly ? '<div id="occurrences">' : '<form method="post" id="occurrences">') .
     		$auth['write'] .
     		'<input type="hidden" name="page" value="occurrences"/>' .
     		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
@@ -589,6 +673,7 @@ class iform_cocoast_transect_quadrat_input_sample {
       			'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : '') .
 			'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
 			'<input type="hidden" id="occurrence:record_status" name="occurrence:record_status" value="'.$record_status.'" />' . "\n" .
+			'<p>' . lang::get('Using Species Package : ') . species_packages_get_name($packageAttr['default']) . '</p>' .
 			'<table id="transect-input1" class="ui-widget species-grid"><thead class="table-header">';
     
     // Build header
@@ -602,11 +687,13 @@ class iform_cocoast_transect_quadrat_input_sample {
     		$r .= '<th class="ui-widget-header">'  . $smpAttr['caption'] . '</th>';
     }
     // need to maintain order as defined in $taxalist
-    $extras = explode(',',$args['taxon_headings_extras']);
     $extraDetails = array();
-    foreach($extras as $extra) {
-    	$parts = explode(':',$extra);
-    	$extraDetails[$parts[0]] = $parts[1];
+    if(isset($args['taxon_headings_extras']) && $args['taxon_headings_extras'] != '') {
+    	$extras = explode(',',$args['taxon_headings_extras']);
+    	foreach($extras as $extra) {
+    		$parts = explode(':',$extra);
+    		$extraDetails[$parts[0]] = $parts[1];
+	    }
     }
     foreach ($taxalist as $ttlid) {
     	foreach($t as $taxon) {
@@ -698,8 +785,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     					} else {
 							$defOccAttrOptions['id'] = ($defOccAttrOptions['fieldname'] = self::_get_occurrence_attr_name($rowPrefix, $existingSample, $ttlid, $occAttrID, $occurrences));
 							$defOccAttrOptions['default']=self::_get_occurrence_attr_value($existingSample, $ttlid, $occAttrID, $occurrences);
-							if($first) $defOccAttrOptions['class']='first';
-							$first = false;
+							$defOccAttrOptions['class']=self::_get_occurrence_attr_class($first, $existingSample, $ttlid, $occurrences);
 							$r .= '<td>' . data_entry_helper::outputAttribute($occ_attributes[$occAttrID], $defOccAttrOptions) . '</td>';
     					}
     				}
@@ -710,9 +796,8 @@ class iform_cocoast_transect_quadrat_input_sample {
     		$rowNumber++;
     	}
     }
-    $r .= '</table>';
-    $r .= '<input type="submit" value="'.lang::get('Save').'" />';
-    $r .= '</form>';
+    $r .= '</table>' .
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
     
     data_entry_helper::enable_validation('occurrences');
     data_entry_helper::add_resource('jquery_ui');
@@ -730,7 +815,11 @@ class iform_cocoast_transect_quadrat_input_sample {
 			$taxaList[] = $parts[0];
 		}
 	}
-	$taxaList = array_merge($taxaList, species_packages_get_species($uid, $args['survey_id'], $package));
+	$packageList = species_packages_get_species($uid, $args['survey_id'], $package);
+	if(is_array($packageList) && count($packageList)>0)
+		$taxaList = array_merge($taxaList, $packageList);
+	else 
+		drupal_set_message(t('The species package you have chosen currently has no taxa assigned to it.'));
   	if(isset($args['suffixTaxa']) && $args['suffixTaxa'] != ''){
 		$defns = explode(',', $args['suffixTaxa']);
 		foreach($defns as $defn){
@@ -783,7 +872,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     // Can't display media unless parent sample already exists.
     if (!self::$sampleId) return "";
 
-    $r = '<form method="post" id="media">' .
+    $r = (self::$readOnly ? '<div id="media">' : '<form method="post" id="media">') .
     		$auth['write'] .
     		'<input type="hidden" name="page" value="media"/>' .
     		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
@@ -794,8 +883,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     			'caption' => lang::get('Photos'),
     			'codeGenerated' => 'all' // php?
     		)) .
-		    '<input type="submit" value="'.lang::get('Save').'" />' .
-    		'</form>';
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
     
     data_entry_helper::enable_validation('media');
 
@@ -864,6 +952,17 @@ class iform_cocoast_transect_quadrat_input_sample {
   			$occurrences[$subSample['sample_id'].':'.$ttlid]['value_'.$attr_id] != '')
   		return $occurrences[$subSample['sample_id'].':'.$ttlid]['value_'.$attr_id];
   	else return '';
+  }
+
+  private static function _get_occurrence_attr_class(&$first, $subSample, $ttlid, $occurrences)
+  {
+  	$classes = array();
+  	if($first) $classes[] = 'first';
+  	if($subSample && isset($occurrences[$subSample['sample_id'].':'.$ttlid]) &&
+  			 $occurrences[$subSample['sample_id'].':'.$ttlid]['o_id'] == self::$occurrenceId)
+  		$classes[] = 'highlight';
+  	$first = false;
+  	return implode(' ',$classes);
   }
   
   

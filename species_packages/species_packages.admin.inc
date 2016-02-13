@@ -205,7 +205,7 @@ function _species_packages_build_species_markup($sid, $occAttrs) {
 				'<span class="ui-icon ui-icon-arrow-1-w species-packages-move-left" title="Click here to move the ' . $result->common . ' entry to the left"></span>'.
 				$result->common . ' (<i>' . $result->taxon . '</i>) ' .
 				'<input type="hidden" name="edit-package-'.$sid.'[]" value="' . $result->indicia_taxa_taxon_list_id . '" />' .
-				(count($attrOpts) == 1 ? '<input type="hidden" name="attr-species-'.$sid.'-'. $result->indicia_taxa_taxon_list_id .' value="' . $occAttrs[1]['id'] . '" />' :
+				(count($attrOpts) == 1 ? '<input type="hidden" name="attr-species-'.$sid.'-'. $result->indicia_taxa_taxon_list_id .'" value="' . $occAttrs[0]['id'] . '" />' :
 						'<select name="attr-species-'.$sid.'-'. $result->indicia_taxa_taxon_list_id .'">'.implode('',$attrOpts).'</select>').
 				'<span class="species-packages-delete-species" title="Click here to delete the ' . $result->common . ' entry"></span>'.
 				'<span class="ui-icon ui-icon-arrow-1-e species-packages-move-right" title="Click here to move the ' . $result->common . ' entry to the right"></span>'.

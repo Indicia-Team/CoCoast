@@ -6,3 +6,7 @@
 .species-grid tr td input, .species-grid tr td select {
     background-color: #f4f4f4;
 }
+.species-grid tr td input.highlight, .species-grid tr td select.highlight {
+    border: 2px solid red;
+	background-color: white;
+}
