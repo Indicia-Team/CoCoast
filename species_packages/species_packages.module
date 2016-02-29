@@ -19,7 +19,8 @@ function species_packages_permission() {
     'define species packages' => array( 'title' => t('Can define species packages') ),
     'allocate species packages' => array( 'title' => t('Can select species packages to be used on data entry forms') ),
     'modify species packages allocations' => array( 'title' => t('Can modify which species packages are used by a user, after initial selection') ),
-    'assign species packages role' => array( 'title' => t('Can assign the role to users which indicates completion of training') )
+    'assign species packages role' => array( 'title' => t('Can assign the role to users which indicates completion of training') ),
+    'see data menu item' => array( 'title' => t('Can see Data menu item') )
   );
   return $retVal;
 
@@ -289,3 +290,39 @@ function species_packages_user_profile_form_submit($form, &$form_state) {
 		variable_set('species_packages_'.($account->uid), $data);
 	}
 }
+
+/*
+ * Implements hook_translated_menu_link_alter.
+ * This is called when building the menu. Checks if the user can access the menu.
+ * Menu item is only displayed if the data entry node has a survey set for which the 
+ * user has set a species package.
+ */
+function species_packages_translated_menu_link_alter(&$item) {
+//  echo '<span style="display:none;"> GARY '.print_r($item,true).'</span>';
+  if ($item['access']) { // avoid checking if the item access is already false
+    preg_match('/^node\/(?P<nid>\d+)/', $item['link_path'], $matches);
+    if (count($matches)) {
+      $node = node_load($matches['nid']);
+      if (!isset($node->type) ||
+          $node->type !== 'iform' ||
+          $node->iform !== 'cocoast_transect_quadrat_input_sample' ||
+          !isset($node->params['survey_id']))
+        return;
+      global $user;
+      $packages = species_packages_get_packages($user->uid, $node->params['survey_id']);
+      if($packages === false || (is_array($packages) && count($packages)==0))
+        $item['access'] = false;
+    } else if($item['link_path'] === 'user' && !user_is_logged_in()) // block My Account if not logged in
+         $item['access'] = false;
+  }
+}
+
+/*
+ * Implements hook_menu_alter.
+ */
+function species_packages_menu_alter(&$items) {
+  $items['<nolink>']['access callback'] = 'user_access';
+  $items['<nolink>']['access arguments'] = array('see data menu item');
+  // if nolink used elsewhere, may need to make this more specific.
+}
+  

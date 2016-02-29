@@ -343,8 +343,6 @@ class iform_cocoast_transect_quadrat_input_sample {
     	return "FATAL INTERNAL CONFIGURATION ERROR: Supplied form survey_id value (".$args['survey_id'].") is not valid survey for this website (".$args['website_id'].").<br/>";
     $surveyTitle = $survey[0]['title'];
 
-    // may need to override this check in future if sampleID is set.
-    // TODO if viewing an existing, and the user is not the originator: view in Read only mode.
 	if(self::$sampleId == null) {
     	$packages = species_packages_get_packages($user->uid, $args['survey_id']);
     	if($packages === false || (is_array($packages) && count($packages)==0)) {
@@ -354,7 +352,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     		drupal_goto('<front>');
     	}
 		self::$readOnly = false;
-	} else { // TODO add management edit permission.
+	} else {
 		self::$readOnly = (data_entry_helper::$entity_to_load['sample:created_by_id'] != hostsite_get_user_field('indicia_user_id')) &&
     						(empty($args['edit_permission']) || !hostsite_user_has_permission($args['edit_permission']));
 	}
@@ -398,7 +396,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     $r .= data_entry_helper::tab_header(array('tabs'=>$tabs));
     data_entry_helper::enable_tabs(array('divId'=>'tabs',
     									'style'=>'Tabs',
-    									'active'=>($occTab != "" && self::$occurrenceId ? 'occurrences' : 'sample')));
+    									'active'=>($occTab != "" && (self::$occurrenceId || self::$sampleId) ? 'occurrences' : 'sample')));
     $r .= $smpTab.$occTab.$mediaTab.'</div>';
     
     return $r;
@@ -441,7 +439,8 @@ class iform_cocoast_transect_quadrat_input_sample {
     }
     if (!isset($options['standardControls']))
     	$options['standardControls']=array('layerSwitcher','panZoomBar');
-
+    $options['tabDiv']='sample';
+    
     // we pass through the read auth. This makes it possible for the get_submission method to authorise against the warehouse
     // without an additional (expensive) warehouse call, so it can get subsample details.
     $r = (self::$readOnly ? '<div id="sample">' : '<form method="post" id="sample">') .
@@ -451,7 +450,11 @@ class iform_cocoast_transect_quadrat_input_sample {
 			'<input type="hidden" name="page" value="mainSample"/>' .
 			'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
 			(isset(data_entry_helper::$entity_to_load['sample:id']) ?
-				'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : '') .
+				'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : 
+    			'<p class="ui-state-highlight page-notice ui-corner-all">' .
+					t('Enter the Transect details below, and then click the Next button at the bottom. This will save the entered details, and add two extra tabs, allowing you to enter the species data and upload any pictures.') .
+	    			'</p>'
+    		) .
 			'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
 			'<input type="hidden" name="sample:sample_method_id" value="'.$args['transect_level_sample_method_id'].'" />' .
 			get_user_profile_hidden_inputs($attributes, $args, isset(data_entry_helper::$entity_to_load['sample:id']), $auth['read']) .
@@ -472,7 +475,7 @@ class iform_cocoast_transect_quadrat_input_sample {
 				)) .
 			'<p class="ui-state-highlight page-notice ui-corner-all">' .
 				t('Use the search box to find a nearby town or village, then drag the map to pan and click on the map to set the centre grid reference of the transect. '.
-    				'Alternatively if you know the grid reference you can enter it in the Grid Ref box above.') .
+    				'Alternatively if you know the grid reference you can enter it in the Grid Ref box above: this will then be drawn automatically on the map.') .
     		'</p>' .
 			data_entry_helper::georeference_lookup(array(
 					'label' => lang::get('Search for place'),
@@ -483,7 +486,11 @@ class iform_cocoast_transect_quadrat_input_sample {
 					'readAuth' => $auth['read']
 				)) .
 			map_helper::map_panel($options, $olOptions) .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.
+										(self::$sampleId ?
+											lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.') :
+											 lang::get('Next').'" title="'.lang::get('Save the changes made on this tab. After this is done, two extra tabs will be added, allowing you to enter the species data and upload pictures.')).
+										'" /></form>');
 
     data_entry_helper::enable_validation('sample');
     return $r;
@@ -545,7 +552,7 @@ class iform_cocoast_transect_quadrat_input_sample {
   }
   
   /**
-   * Return the generated output for the species grid tab.
+   * Return the generated output for the occurrences grid tab.
    * @param array $args List of parameter values passed through to the form depending on how the form has been configured.
    *                    This array always contains a value for language.
    * @param integer $nid The Drupal node object's ID.
@@ -797,7 +804,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     	}
     }
     $r .= '</table>' .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.').'" /></form>');
     
     data_entry_helper::enable_validation('occurrences');
     data_entry_helper::add_resource('jquery_ui');
@@ -883,7 +890,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     			'caption' => lang::get('Photos'),
     			'codeGenerated' => 'all' // php?
     		)) .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" /></form>');
+			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.').'" /></form>');
     
     data_entry_helper::enable_validation('media');
 
