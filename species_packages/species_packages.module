@@ -137,6 +137,7 @@ function species_packages_get_name($package)
 	$packages = db_query('SELECT * FROM {species_packages} WHERE sid = :islid', array(':islid' => ($package)));
 	foreach ($packages as $package)
 		$r[] = $package->package_name;
+	if (count($r) != 1) return "INVALID PACKAGE ".$package;
 	return $r[0];
 }
 
@@ -325,4 +326,11 @@ function species_packages_menu_alter(&$items) {
   $items['<nolink>']['access arguments'] = array('see data menu item');
   // if nolink used elsewhere, may need to make this more specific.
 }
+
+function species_packages_views_api() {
+  return array(
+    'api' => 3.0
+  );
+}
+
   

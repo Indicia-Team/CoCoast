@@ -5,3 +5,6 @@ core = 7.x
 version = "7.x-1.0"
 package = "Indicia"
 dependencies[] = iform
+dependencies[] = views
+
+files[] = includes/views/views_handler_field_species_package.inc

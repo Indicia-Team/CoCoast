@@ -34,6 +34,7 @@ class iform_cocoast_transect_quadrat_input_sample {
   private static $sampleId;
   private static $occurrenceId;
   private static $readOnly;
+  private static $multiPackageOptions;
   
   /**
    * Return the form metadata. Note the title of this method includes the name of the form file. This ensures
@@ -104,7 +105,54 @@ class iform_cocoast_transect_quadrat_input_sample {
           'description'=>'The title to be used on the media tab.',
           'type'=>'string',
           'required' => true,
-          'group'=>'General Form Settings',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+        array(
+          'name'=>'site_caption_template',
+          'caption'=>'Site caption template',
+          'description'=>'When generating the possible caption(s) for the site image(s), use this template. {name} is replaced with the location name, {nameNS} is replaced with the location name with all the spaces removed, and {diff} by the differentiator (see below).',
+          'type'=>'string',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+      	array(
+          'name'=>'site_caption_differentiator',
+          'caption'=>'Site caption differentiator',
+          'description'=>'When generating the possible caption(s) for the site image(s), use each of the members of this list as {diff} in the template above to produce individual options. CSV',
+          'type'=>'string',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+        array(
+          'name'=>'quadrat_caption_template',
+          'caption'=>'Quadrat caption template',
+          'description'=>'When generating the possible caption(s) for the quadrat images, use this template. As well as the Site Template replacements detailed above (though with the quadrat differentiator detailed below), {N1} is replaced by the level 1 value, {caption1} by the level 1 attribute caption, {N2} by the level 2 value, {caption2} by the level 2 attribute caption, and {attr<x>} by the value of sample attribute <x> - subject to a possible mapping (also see below).',
+          'type'=>'string',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+      	array(
+          'name'=>'quadrat_caption_differentiator',
+          'caption'=>'Quadrat caption differentiator',
+          'description'=>'When generating the possible caption(s) for the quadrat images, use each of the members of this list as {diff} in the template above to produce individual options. CSV',
+          'type'=>'string',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+      	array(
+          'name'=>'quadrat_caption_attribute_mapping',
+          'caption'=>'Attribute mapping',
+          'description'=>'When generating the possible caption(s) for the quadrat images, use these definitions to map attribute values. Format is &lt;x&gt;:&lt;n&gt;=&lt;txt&gt;:&lt;n&gt;=&lt;txt&gt;[,&lt;x&gt;:&lt;n&gt;=&lt;txt&gt;:&lt;n&gt;=&lt;txt&gt;] where &lt;x&gt; is the attribute id, &lt;n&gt; is the attribute value, and &lt;txt&gt; is the replacement value to be used in the template.',
+          'type'=>'string',
+          'group'=>'Media Tab',
+          'siteSpecific'=>true
+        ),
+      	array(
+          'name'=>'media_tab_bumpf',
+          'caption'=>'Media Tab Helptext',
+          'type'=>'textarea',
+          'group'=>'Media Tab',
           'siteSpecific'=>true
         ),
       	array(
@@ -255,8 +303,17 @@ class iform_cocoast_transect_quadrat_input_sample {
           'required' => false,
           'group'=>'Species Grid',
           'siteSpecific'=>true
+        ),
+      	array(
+          'name'=>'fill_zeroes',
+          'caption'=>'Fill with Zeroes',
+          'description'=>'When set, if a field is filled in on the species grid, all unfilled in text fields will be set to zero on that row.',
+          'type'=>'boolean',
+          'required'=>false,
+          'group'=>'Species Grid',
+          'siteSpecific'=>true
         )
-      )
+    )
     );
   }
 
@@ -279,11 +336,14 @@ class iform_cocoast_transect_quadrat_input_sample {
     if (!function_exists('module_exists') || !module_exists('species_packages'))
       return 'FATAL INTERNAL CONFIGURATION ERROR: This form must be used in Drupal with the custom species_packages module enabled.';
 
-    $r = (isset($response['error']) ? data_entry_helper::dump_errors($response) : '');
+    $r = (isset($response['error']) ? data_entry_helper::dump_errors($response) : '')
+//    	.'<span style="display:none;">'.(print_r($response,true)).'</span>'
+//    	.'<span>'.(print_r($response,true)).'</span>'
+    			;
     iform_load_helpers(array('map_helper','report_helper'));
     $auth = data_entry_helper::get_read_write_auth($args['website_id'], $args['password']);
 
-    self::$sampleId = false;
+    self::$sampleId = null;
     self::$occurrenceId = false;
     if (isset(data_entry_helper::$entity_to_load['sample:id']) && data_entry_helper::$entity_to_load['sample:id'] != "") {
     	// have just posted a (failed) edit to an existing parent sample.
@@ -295,6 +355,15 @@ class iform_cocoast_transect_quadrat_input_sample {
 		// have just successfully posted either a new parent sample, or an update to an existing one.
 		self::$sampleId = $response['outer_id'];
  		data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
+ 		$reload = data_entry_helper::get_reload_link_parts();
+ 		if(isset($reload['params']['occurrence_id']))
+ 			unset($reload['params']['occurrence_id']);
+ 		if(isset($reload['params']['sample_id']))
+ 			unset($reload['params']['sample_id']);
+ 		$reload['params']['new'] = "1";
+ 		$newPath = $reload['path'].'?'.data_entry_helper::array_to_query_string($reload['params']);
+ 		drupal_set_message(str_replace('{newpath}', $newPath,
+ 			lang::get('The Transect you have just entered has been reloaded below to allow you to continue to enter data for it (e.g. upload photos), or you can <a href="{newpath}">enter the visit details for another transect by clicking this link</a>. Alternatively, you can choose one of the options in the main menu above, e.g. Explore all the data entered.')));
     } else if(isset($_GET['sample_id']) && intval($_GET['sample_id']) == $_GET['sample_id']) {
     	self::$sampleId = $_GET['sample_id'];
     	data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
@@ -308,7 +377,8 @@ class iform_cocoast_transect_quadrat_input_sample {
 	    	$occurrence = data_entry_helper::get_population_data(array(
     			'table' => 'occurrence',
     			'extraParams' => $auth['read'] + array('view'=>'detail','id'=>self::$occurrenceId)
- 			));
+ 			)); // this throws an error exception if any error.
+	    	// this gives 
     		if(count($occurrence) == 1) {
     			$subsample = data_entry_helper::get_population_data(array(
     				'table' => 'sample',
@@ -342,7 +412,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     if(count($survey) != 1)
     	return "FATAL INTERNAL CONFIGURATION ERROR: Supplied form survey_id value (".$args['survey_id'].") is not valid survey for this website (".$args['website_id'].").<br/>";
     $surveyTitle = $survey[0]['title'];
-
+    
 	if(self::$sampleId == null) {
     	$packages = species_packages_get_packages($user->uid, $args['survey_id']);
     	if($packages === false || (is_array($packages) && count($packages)==0)) {
@@ -353,7 +423,8 @@ class iform_cocoast_transect_quadrat_input_sample {
     	}
 		self::$readOnly = false;
 	} else {
-		self::$readOnly = (data_entry_helper::$entity_to_load['sample:created_by_id'] != hostsite_get_user_field('indicia_user_id')) &&
+		self::$readOnly = !isset($response['error']) && // must have edit if an error posting has occurred
+							(data_entry_helper::$entity_to_load['sample:created_by_id'] != hostsite_get_user_field('indicia_user_id')) &&
     						(empty($args['edit_permission']) || !hostsite_user_has_permission($args['edit_permission']));
 	}
 	if(self::$readOnly)
@@ -362,7 +433,8 @@ class iform_cocoast_transect_quadrat_input_sample {
 	// In readonly mode, the forms are replaced by divs and there are no save buttons.
 
 //    $r .= '<span style="display:none;">'.print_r($packages,true).'</span>';
-    
+//	$r .= '<span style="display:none;">'.print_r(array($user->uid, $args, $packageAttr), true).'</span>' .
+	
     $attributes = data_entry_helper::getAttributes(array(
     		'id' => self::$sampleId,
     		'valuetable'=>'sample_attribute_value',
@@ -373,7 +445,6 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'survey_id'=>$args['survey_id'],
     		'sample_method_id'=>$args['transect_level_sample_method_id']
     ));
-    
     $packageAttr = self::extract_package_attr($attributes, true);
     if (!$packageAttr) {
     	return "FATAL INTERNAL CONFIGURATION ERROR: This form must be used with a survey which has a &#x22;Species Package&#x22; sample attribute defined for it (integer, required on parent).<br/>";
@@ -381,8 +452,16 @@ class iform_cocoast_transect_quadrat_input_sample {
     
     self::_remove_options($args);
     
+    $r .= (self::$readOnly ? '<div id="data_entry_form">' : '<form method="post" id="data_entry_form">'.$auth['write']) .
+    		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
+    		(isset(data_entry_helper::$entity_to_load['sample:id']) ?
+    			'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : '') .
+    		'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
+    		'<input type="hidden" name="sample:sample_method_id" value="'.$args['transect_level_sample_method_id'].'" />';
+    
     if(isset(data_entry_helper::$entity_to_load['sample:id']))
         $r .= "<h2>".data_entry_helper::$entity_to_load['sample:location_name']." on ".data_entry_helper::$entity_to_load['sample:date'] . (self::$readOnly ? ' '.lang::get('READ ONLY') : '') . "</h2>\n";
+
     $r .= "<div id=\"tabs\">\n";
     $tabs = array();
     $smpTab = self::get_sample_tab($args, $nid, $auth, $attributes, $packageAttr);
@@ -391,16 +470,35 @@ class iform_cocoast_transect_quadrat_input_sample {
     $tabs['#sample'] = t($args['sample_tab_label']);
     if($occTab != "")
     	$tabs['#occurrences'] = t($args['occurrence_tab_label']);
-    if($occTab != "")
+    if($mediaTab != "")
     	$tabs['#media'] = t($args['media_tab_label']);
     $r .= data_entry_helper::tab_header(array('tabs'=>$tabs));
     data_entry_helper::enable_tabs(array('divId'=>'tabs',
     									'style'=>'Tabs',
     									'active'=>($occTab != "" && (self::$occurrenceId || self::$sampleId) ? 'occurrences' : 'sample')));
-    $r .= $smpTab.$occTab.$mediaTab.'</div>';
-    
+    $r .= $smpTab.$occTab.$mediaTab.'</div>'.
+    		(self::$readOnly ? '</div>' : '</form>');
+    if(!self::$readOnly) {
+    	// custom version of enable validation code
+    	data_entry_helper::$validated_form_id = 'data_entry_form';
+    	data_entry_helper::$javascript .= "indiciaData.validatedFormId = '" . data_entry_helper::$validated_form_id . "';\n";
+    	// prevent double submission of the form
+    	data_entry_helper::$javascript .= "$('#data_entry_form').submit(function(e) {
+  if (typeof $('#data_entry_form').valid === 'undefined' || $('#data_entry_form').valid()) {
+    if (typeof indiciaData.formSubmitted==='undefined' || !indiciaData.formSubmitted) {
+      $('<p>".lang::get('Please wait whilst the data is saved.')."</p>').dialog({ title: '".lang::get('Saving Data')."', buttons: { '".lang::get('OK')."' : function() { $( this ).dialog('close'); } } });
+      indiciaData.formSubmitted=true;
+    } else {
+      e.preventDefault();
+      return false;
+    }
+  }
+});\n";
+    	data_entry_helper::add_resource('validation');
+    }
     return $r;
   }
+
 
   /**
    * Return the generated output for the main sample tab.
@@ -410,7 +508,7 @@ class iform_cocoast_transect_quadrat_input_sample {
    * @param object $auth The full read-write authorisation.
    * @return HTML.
    */
-  private static function get_sample_tab($args, $nid, $auth, $attributes, $packageAttr) {
+  private static function get_sample_tab($args, $nid, $auth, $attributes, &$packageAttr) {
     global $user;
 
     if (isset(data_entry_helper::$entity_to_load['sample:date']) && preg_match('/^(\d{4})/', data_entry_helper::$entity_to_load['sample:date'])) {
@@ -443,25 +541,14 @@ class iform_cocoast_transect_quadrat_input_sample {
     
     // we pass through the read auth. This makes it possible for the get_submission method to authorise against the warehouse
     // without an additional (expensive) warehouse call, so it can get subsample details.
-    $r = (self::$readOnly ? '<div id="sample">' : '<form method="post" id="sample">') .
-			$auth['write'] .
-			'<input type="hidden" name="read_nonce" value="'.$auth['read']['nonce'].'"/>' .
-			'<input type="hidden" name="read_auth_token" value="'.$auth['read']['auth_token'].'"/>' .
-			'<input type="hidden" name="page" value="mainSample"/>' .
-			'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
-			(isset(data_entry_helper::$entity_to_load['sample:id']) ?
-				'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : 
-    			'<p class="ui-state-highlight page-notice ui-corner-all">' .
-					t('Enter the Transect details below, and then click the Next button at the bottom. This will save the entered details, and add two extra tabs, allowing you to enter the species data and upload any pictures.') .
-	    			'</p>'
-    		) .
-			'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
-			'<input type="hidden" name="sample:sample_method_id" value="'.$args['transect_level_sample_method_id'].'" />' .
+    $r = '<div id="sample">' .
+    		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
 			get_user_profile_hidden_inputs($attributes, $args, isset(data_entry_helper::$entity_to_load['sample:id']), $auth['read']) .
 			data_entry_helper::text_input(array(
  					'label' => lang::get('Location Name'),
 					'fieldname' => 'sample:location_name',
-					'class' => 'control-width-5'
+					'class' => 'control-width-5',
+      				'validation'=>array('required')
 				)) .
 			data_entry_helper::date_picker(array(
 					'label' => lang::get('Date'),
@@ -469,6 +556,10 @@ class iform_cocoast_transect_quadrat_input_sample {
 				)) .
 			self::_build_package_control($args, $packageAttr) .
 			get_attribute_html($attributes, $args, array('extraParams'=>$auth['read']), null, $blockOptions) .
+			data_entry_helper::textarea(array(
+					'fieldname'=>'sample:comment',
+					'label'=>lang::get('Overall comment')
+			)) .
 			data_entry_helper::sref_and_system(array(
 					'label' => lang::get('Grid Reference'),
 					'systems' => $systems
@@ -477,22 +568,19 @@ class iform_cocoast_transect_quadrat_input_sample {
 				t('Use the search box to find a nearby town or village, then drag the map to pan and click on the map to set the centre grid reference of the transect. '.
     				'Alternatively if you know the grid reference you can enter it in the Grid Ref box above: this will then be drawn automatically on the map.') .
     		'</p>' .
-			data_entry_helper::georeference_lookup(array(
+			(isset(data_entry_helper::$entity_to_load['sample:id']) ? '' : // only have georef on initial creation
+				data_entry_helper::georeference_lookup(array(
 					'label' => lang::get('Search for place'),
 					'driver'=>$args['georefDriver'],
 					'georefPreferredArea' => $args['georefPreferredArea'],
 					'georefCountry' => $args['georefCountry'],
 					'georefLang' => $args['language'],
 					'readAuth' => $auth['read']
-				)) .
+				))) .
 			map_helper::map_panel($options, $olOptions) .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.
-										(self::$sampleId ?
-											lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.') :
-											 lang::get('Next').'" title="'.lang::get('Save the changes made on this tab. After this is done, two extra tabs will be added, allowing you to enter the species data and upload pictures.')).
-										'" /></form>');
+			(self::$readOnly ? '' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Saves any data entered across all the tabs.').'" />') .
+			'</div>';
 
-    data_entry_helper::enable_validation('sample');
     return $r;
   }
 
@@ -510,9 +598,10 @@ class iform_cocoast_transect_quadrat_input_sample {
   }
 
   // Build the special control for Species Package.
-  private static function _build_package_control($args, $packageAttr) {
+  private static function _build_package_control($args, &$packageAttr) {
   	global $user;
 
+  	self::$multiPackageOptions = false;
   	if (isset(data_entry_helper::$entity_to_load['sample:id']) && data_entry_helper::$entity_to_load['sample:id'] != "")
   		return '<input type="hidden" name="'.$packageAttr['fieldname'].'" value="'.$packageAttr['default'].'">';
   		
@@ -520,13 +609,16 @@ class iform_cocoast_transect_quadrat_input_sample {
   	if($packageList === false|| !is_array($packageList) || count($packageList) == 0) return '';
   	if(count($packageList) == 1) {
   		// only one chosen, so no need to confuse the user by showing extra details.
+  		$packageAttr['default'] = $packageList[0];
   		return '<input type="hidden" name="'.$packageAttr['fieldname'].'" value="'.$packageList[0].'">';
   	} else {
+  		self::$multiPackageOptions = true;
   		$options = array('blankText' => '<'.lang::get('Please select').'>',
   				'fieldname'=>$packageAttr['fieldname'],
   				'lookupValues' => array(),
   		        'label'=>lang::get('Species Package'),
-  				'validation'=>array('required')
+  				'validation'=>array('required'),
+  				'helpText'=>lang::get('You must select the species package, and then save the record, before you can enter data on the species tab.')
   		);
   		
   		foreach($packageList as $package) {
@@ -563,7 +655,18 @@ class iform_cocoast_transect_quadrat_input_sample {
     global $user;
     global $indicia_templates;
     // initially not ajax due to uncertainty over mandatory status of sample attributes.
+    $r = '';
+
+    // In the situation where there are multiple species packages to be selected from, we can't
+    // display the species grid until that decision is made.
+    if(self::$multiPackageOptions)
+    	return '<div id="occurrences">' .
+    		'<p>' .
+    		lang::get('There are multiple possible species packages: you must select the species package (on the first tab) and then save the record before you can enter data on the species tab.') .
+    		'</p>' .
+    		'</div>';
     
+    // Because the initial save sets the species package
     // remove the ctrlWrap as it complicates the grid & JavaScript unnecessarily
     $oldCtrlWrapTemplate = $indicia_templates['controlWrap'];
     $indicia_templates['controlWrap'] = '{control}';
@@ -571,19 +674,6 @@ class iform_cocoast_transect_quadrat_input_sample {
 
     $defaults = helper_base::explode_lines_key_value_pairs($args['defaults']);
     $record_status = isset($defaults['occurrence:record_status']) ? $defaults['occurrence:record_status'] : 'C';
-    
-    // Can't display grid unless parent sample already exists.
-    if (isset(data_entry_helper::$entity_to_load['sample:id']) && data_entry_helper::$entity_to_load['sample:id'] != "") {
-      // have just posted an edit to the existing parent sample, so can use it to get the parent location id.
-      $parentSampleId = data_entry_helper::$entity_to_load['sample:id'];
-    } else return "";
-    $sample = data_entry_helper::get_population_data(array(
-      'table' => 'sample',
-      'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$parentSampleId,'deleted'=>'f'),
-      'nocache' => true
-    ));
-    $sample=$sample[0];
-    $date=$sample['date_start'];
     
     // find any attributes that apply to quadrat samples.
     // We need attribute list in both ordered and indexed formats
@@ -606,12 +696,6 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'sample_method_id'=>$args['quadrat_level_sample_method_id'],
     		'multiValue'=>false // ensures that array_keys are the list of attribute IDs.
     ));
-    
-    $subSamples = data_entry_helper::get_population_data(array(
-      'report' => 'library/samples/samples_list_for_parent_sample',
-      'extraParams' => $auth['read'] + array('sample_id'=>$parentSampleId,'date_from'=>'','date_to'=>'', 'sample_method_id'=>$args['quadrat_level_sample_method_id'], 'smpattrs'=>implode(',', array_keys($attributesIdx))),
-      'nocache'=>true
-    ));
 
     $occ_attributes = data_entry_helper::getAttributes(array(
     		'valuetable'=>'occurrence_attribute_value',
@@ -623,13 +707,24 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'multiValue'=>false // ensures that array_keys are the list of attribute IDs.
     ));
     
-    $o = data_entry_helper::get_population_data(array(
-        'report' => 'reports_for_prebuilt_forms/UKBMS/ukbms_occurrences_list_for_parent_sample',
-        'extraParams' => $auth['read'] + array('sample_id'=>$parentSampleId,'survey_id'=>$args['survey_id'],'date_from'=>'','date_to'=>'','taxon_group_id'=>'',
-            'smpattrs'=>'', 'occattrs'=>implode(',',array_keys($occ_attributes)), 'orderby' => 'o.id'),
-        // don't cache as this is live data
-        'nocache' => true
-    ));
+    if(self::$sampleId == null) {
+    	$subSamples = array();
+    	$o = array();
+    } else {
+	    $subSamples = data_entry_helper::get_population_data(array(
+    	  'report' => 'library/samples/samples_list_for_parent_sample',
+	      'extraParams' => $auth['read'] + array('sample_id'=>self::$sampleId,'date_from'=>'','date_to'=>'', 'sample_method_id'=>$args['quadrat_level_sample_method_id'], 'smpattrs'=>implode(',', array_keys($attributesIdx))),
+    	  'nocache'=>true
+	    ));
+	    $o = data_entry_helper::get_population_data(array(
+	        'report' => 'reports_for_prebuilt_forms/UKBMS/ukbms_occurrences_list_for_parent_sample',
+	        'extraParams' => $auth['read'] + array('sample_id'=>self::$sampleId,'survey_id'=>$args['survey_id'],'date_from'=>'','date_to'=>'','taxon_group_id'=>'',
+	            'smpattrs'=>'', 'occattrs'=>implode(',',array_keys($occ_attributes)), 'orderby' => 'occurrence_id'),
+	        // don't cache as this is live data
+	        'nocache' => true
+	    ));
+    }
+
     // build an array of occurrence and attribute data keyed for easy lookup
     $occurrences = array();
     if(self::$readOnly)
@@ -672,19 +767,15 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'table' => 'taxa_taxon_list',
     		'extraParams' => $auth['read'] + array('view'=>'detail','id'=>$taxalist)));
 
-    $r = (self::$readOnly ? '<div id="occurrences">' : '<form method="post" id="occurrences">') .
-    		$auth['write'] .
-    		'<input type="hidden" name="page" value="occurrences"/>' .
-    		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
-    		(isset(data_entry_helper::$entity_to_load['sample:id']) ?
-      			'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' : '') .
-			'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
-			'<input type="hidden" id="occurrence:record_status" name="occurrence:record_status" value="'.$record_status.'" />' . "\n" .
+    $r .= // '<span style="display:none;">'.print_r(array($user->uid, $args, $packageAttr), true).'</span>' .
+      		'<div id="occurrences">' .
+    		'<input type="hidden" id="occurrence:record_status" name="occurrence:record_status" value="'.$record_status.'" />' . "\n" .
 			'<p>' . lang::get('Using Species Package : ') . species_packages_get_name($packageAttr['default']) . '</p>' .
 			'<table id="transect-input1" class="ui-widget species-grid"><thead class="table-header">';
     
     // Build header
     $r .= '<tr>' .
+    		'<th class="ui-widget-header"></th>'. // clear row
     		'<th class="ui-widget-header">' . $attributesIdx[$args['sample_attribute_id_1']]['caption'] . '</th>'.
       		(!isset($args['sample_attribute_id_2']) || $args['sample_attribute_id_2'] == "" ? '' :
       			'<th class="ui-widget-header">' . $attributesIdx[$args['sample_attribute_id_2']]['caption'] . '</th>');
@@ -706,10 +797,9 @@ class iform_cocoast_transect_quadrat_input_sample {
     	foreach($t as $taxon) {
     		if($ttlid == $taxon['id']) {
     			$attr = self::_get_species_attribute($user->uid, $args, $packageAttr['default'], $ttlid);
-		    	$r .= '<th class="ui-widget-header"' .
-    				($taxon['common'] != '' && $taxon['taxon'] != $taxon['common'] ? ' title="'.$taxon['taxon'].'"' : '') .
-		    		'>' .
-    				($taxon['common'] != '' ? $taxon['common'] : $taxon['taxon']) .
+		    	$r .= '<th class="ui-widget-header" >' .
+    				($taxon['common'] != '' ? $taxon['common'] : '<em>'.$taxon['taxon'].'</em>') .
+    				($taxon['common'] != '' && $taxon['taxon'] != $taxon['common'] ? ' <em>'.$taxon['taxon'].'</em>' : '') .
     				(isset($extraDetails[$attr]) ? ' ('.$extraDetails[$attr].')' : '').
     				(isset($extraDetails[$taxon['common']]) ? ' ('.$extraDetails[$taxon['common']].')' : '').
     				'</th>';
@@ -744,7 +834,9 @@ class iform_cocoast_transect_quadrat_input_sample {
   
     		$rowPrefix = "Grid:Row".$rowNumber.":".($existingSample ? $existingSample['sample_id'] : '').":";
     		$r .= '<tr class="datarow'./*($altRow?' odd':'').*/($loop2 == 1 ? ' level1' : ' level2').'">';
-
+    		
+    		$r .= '<td class="ui-state-default clear-row" style="width: 1%" title="'.lang::get('Clear all contents of this row').'">X</td>';
+    		
     	    $roAttrOptions['id'] = ($roAttrOptions['fieldname'] = self::_get_sample_attr_name($rowPrefix, $existingSample, $args['sample_attribute_id_1'])); 
     	    $roAttrOptions['default'] = $loop1;
     		$r .= '<td>' . data_entry_helper::outputAttribute($attributesIdx[$args['sample_attribute_id_1']], $roAttrOptions) . '</td>';
@@ -804,11 +896,11 @@ class iform_cocoast_transect_quadrat_input_sample {
     	}
     }
     $r .= '</table>' .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.').'" /></form>');
+			(self::$readOnly ? '' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Saves any data entered across all the tabs.').'" />') .
+    		'</div>' ;
     
-    data_entry_helper::enable_validation('occurrences');
     data_entry_helper::add_resource('jquery_ui');
-
+    data_entry_helper::$javascript .= "indiciaData.fill_zeroes=".(isset($args['fill_zeroes']) && $args['fill_zeroes'] ? 'true' : 'false').";\n";
     return $r;
   }
 
@@ -826,7 +918,7 @@ class iform_cocoast_transect_quadrat_input_sample {
 	if(is_array($packageList) && count($packageList)>0)
 		$taxaList = array_merge($taxaList, $packageList);
 	else 
-		drupal_set_message(t('The species package you have chosen currently has no taxa assigned to it.'));
+		drupal_set_message(t('Either the species package you have chosen currently has no taxa assigned to it, or you are viewing data for a package you do not have access to: ').species_packages_get_name($package));
   	if(isset($args['suffixTaxa']) && $args['suffixTaxa'] != ''){
 		$defns = explode(',', $args['suffixTaxa']);
 		foreach($defns as $defn){
@@ -876,24 +968,89 @@ class iform_cocoast_transect_quadrat_input_sample {
     data_entry_helper::add_resource('plupload');
     data_entry_helper::add_resource('jquery_ui');
     
-    // Can't display media unless parent sample already exists.
-    if (!self::$sampleId) return "";
+    $limit1 = $args['sample_attribute_id_1_limit'];
+    $limit2 = $args['sample_attribute_id_2_limit'];
+    if(!isset($args['sample_attribute_id_2']) || $args['sample_attribute_id_2'] == "") {
+      $limit2 = 1;
+      $caption2 = "";
+    } else $caption2 = $attributesIdx[$args['sample_attribute_id_2']]['caption'];
 
-    $r = (self::$readOnly ? '<div id="media">' : '<form method="post" id="media">') .
-    		$auth['write'] .
-    		'<input type="hidden" name="page" value="media"/>' .
-    		'<input type="hidden" name="website_id" value="'.$args['website_id'].'"/>' .
-    		'<input type="hidden" name="sample:id" value="'.data_entry_helper::$entity_to_load['sample:id'].'"/>' .
-    		'<input type="hidden" name="sample:survey_id" value="'.$args['survey_id'].'"/>' .
-		    data_entry_helper::file_box(array(
+    $attributesIdx = data_entry_helper::getAttributes(array(
+    		'valuetable'=>'sample_attribute_value',
+    		'attrtable'=>'sample_attribute',
+    		'key'=>'sample_id',
+    		'fieldprefix'=>'smpAttr',
+    		'extraParams'=>$auth['read'],
+    		'survey_id'=>$args['survey_id'],
+    		'sample_method_id'=>$args['quadrat_level_sample_method_id'],
+    		'multiValue'=>false // ensures that array_keys are the list of attribute IDs.
+    ));
+    
+    $scd = (isset($args['site_caption_differentiator']) && $args['site_caption_differentiator']!="") ?
+    			explode(',',$args['site_caption_differentiator']) :
+    			array('1');
+    $qcd = (isset($args['quadrat_caption_differentiator']) && $args['quadrat_caption_differentiator']!="") ?
+    			explode(',',$args['quadrat_caption_differentiator']) :
+    			array('1');
+    $bumpf = isset($args['media_tab_bumpf']) ? $args['media_tab_bumpf'] :
+          			lang::get('Please use the caption field to indicate whether the image is of a particular '.(count($qcd)>1?'aspect of a ':'').$attributesIdx[$args['sample_attribute_id_1']]['caption'].', or the shore/site.'). ' ' .
+          			lang::get('When you start typing you should see a set of appropriate options from which you can choose: this will guide you to enter the correct value and format. Alternative just pressing the down arrow key should give the full list.');
+    
+//    'description'=>'Format is &lt;x&gt;:&lt;n&gt;=&lt;txt&gt;:&lt;n&gt;=&lt;txt&gt;[,&lt;x&gt;:&lt;n&gt;=&lt;txt&gt;:&lt;n&gt;=&lt;txt&gt;] where &lt;x&gt; is the attribute id, &lt;n&gt; is the attribute value, and &lt;txt&gt; is the replacement value to be used in the template.',
+    
+    $mappings = isset($args['quadrat_caption_attribute_mapping']) ?
+    			explode(',', $args['quadrat_caption_attribute_mapping'])
+    			: array();
+    $mappingsList = array();
+    foreach($mappings as $mapping) {
+    	$parts = explode(':',$mapping);
+    	$map = array();
+    	for($i = 1; $i < count($parts); $i++) { // skip first
+    		$map[] = explode('=', $parts[$i]);
+    	}
+    	$mappingsList['attr'.$parts[0]] = $map;
+    }
+    data_entry_helper::$javascript .= "indiciaData.limit1=$limit1;
+indiciaData.site_caption_template='".(isset($args['site_caption_template']) ? $args['site_caption_template'] : 'Site')."';
+indiciaData.site_caption_differentiator=".json_encode($scd).";
+indiciaData.limit2=$limit2;
+indiciaData.quadrat_caption_template='".str_replace(array('{caption1}', '{caption2}'), array($attributesIdx[$args['sample_attribute_id_1']]['caption'], $caption2), (isset($args['quadrat_caption_template']) ? $args['quadrat_caption_template'] : '{caption1} {N1}'))."';
+indiciaData.quadrat_caption_differentiator=".json_encode($qcd).";
+indiciaData.quadrat_caption_attribute_mapping=".json_encode($mappingsList).";
+";
+    
+    $r = '<div id="media">' .
+      		'<p class="ui-state-highlight page-notice ui-corner-all">'.
+      			$bumpf.
+      			'<br/>'.lang::get('The maximum number of files you can upload is ').(count($scd)+ count($qcd)*$limit1*$limit2).'.<p>'.
+    		data_entry_helper::file_box(array(
     			'table' => 'sample_medium',
     			'caption' => lang::get('Photos'),
-    			'codeGenerated' => 'all' // php?
+    			'codeGenerated' => 'all', // php?
+    			'maxFileCount' => (count($scd)+ count($qcd)*$limit1*$limit2),
+    			'file_box_uploaded_extra_fieldsTemplate' => 
+    				'<input type="hidden" name="{idField}" id="{idField}" value="{idValue}" />' .
+    				'<input type="hidden" name="{pathField}" id="{pathField}" value="{pathValue}" />' .
+    				'<input type="hidden" name="{typeField}" id="{typeField}" value="{typeValue}" />' .
+    				'<input type="hidden" name="{typeNameField}" id="{typeNameField}" value="{typeNameValue}" />' .
+    				'<input type="hidden" name="{deletedField}" id="{deletedField}" value="{deletedValue}" class="deleted-value" />' .
+    				'<input type="hidden" id="{isNewField}" value="{isNewValue}" />' .
+    				'<label for="{captionField}">Caption:</label><br/><input type="text" list="captions" maxlength="100" style="width: {imagewidth}px" name="{captionField}" id="{captionField}" value="{captionValue}"/>'				
     		)) .
-			(self::$readOnly ? '</div>' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Save the changes made on this tab.').'" /></form>');
-    
-    data_entry_helper::enable_validation('media');
+			(self::$readOnly ? '' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Saves any data entered across all the tabs.').'" />').
+    		'<datalist id="captions"></datalist>'.
+    		'</div>' ;
 
+    $typeTermData = data_entry_helper::get_population_data(array(
+    		'table'=>'termlists_term',
+    		'extraParams'=>$auth['read']+array('view'=>'cache', 'termlist_title'=>'Media types', 'columns'=>'id,term')
+    ));
+    $typeTermIdLookup = array();
+    foreach ($typeTermData as $record) {
+    	$typeTermIdLookup[$record['term']]=$record['id'];
+    }
+    data_entry_helper::$javascript .= "indiciaData.mediaTypeTermIdLookup=".json_encode($typeTermIdLookup).";\n";
+    		
     return $r;
   }
 
@@ -980,82 +1137,62 @@ class iform_cocoast_transect_quadrat_input_sample {
    * @return array Submission structure.
    */
   public static function get_submission($values, $args) {
+  	global $user;
     $subsampleModels = array();
-    $submission = submission_builder::build_submission($values, array('model' => 'sample'));
-    if (isset($values['page']) && $values['page']=='occurrences') {
-    	foreach($values as $key => $value){
-    		$parts = explode(':', $key, 5);
-    		if ($parts[0] == 'Grid') {
-    			$details = explode(':', $parts[4], 3);
-    			if(!isset($subsampleModels[$parts[1]])) {
-	    			$smp = array('fkId' => 'parent_id',
-	    					'model' => array('id' => 'sample',
+    $submission = submission_builder::build_submission($values, array('model' => 'sample')); // this handles the photos as well.
+    // deal with any species grid options.
+    foreach($values as $key => $value){
+    	$parts = explode(':', $key, 5);
+    	if ($parts[0] == 'Grid') {
+    		$details = explode(':', $parts[4], 3);
+    		if(!isset($subsampleModels[$parts[1]])) {
+	    		$smp = array('fkId' => 'parent_id',
+	    				'model' => array('id' => 'sample',
 	    							'fields' => array('sample_method_id'=> array('value' => $args['quadrat_level_sample_method_id']))),
-	    					'data' => ($parts[2] != ''),
-							'copyFields' => array('survey_id'=>'survey_id',
+	    				'data' => ($parts[2] != ''),
+						'copyFields' => array('survey_id'=>'survey_id',
 									'date_start'=>'date_start','date_end'=>'date_end','date_type'=>'date_type',
 									'entered_sref_system' => 'entered_sref_system',
-									'entered_sref' => 'entered_sref')); // from parent->to child
-    				// TODO location_name
-    				if($parts[2] != '')
-    					$smp['model']['fields']['id'] = array('value' => $parts[2]);
-    				$subsampleModels[$parts[1]]=$smp;
-    			}
-    			if($parts[3] == 'smpAttr') {
-    				$subsampleModels[$parts[1]]['model']['fields']['smpAttr:'.$parts[4]] = array('value' => $value);
-    				if($details[0] != $args['sample_attribute_id_1'] &&
-    						(!isset($args['sample_attribute_id_2']) || $args['sample_attribute_id_2'] == '' || $details[0] != $args['sample_attribute_id_2']))
-    					$subsampleModels[$parts[1]]['data'] = $subsampleModels[$parts[1]]['data'] || ($value != '');
-	    		}
-    		    if($parts[3] == 'occ') {
-	    			$occ = array('fkId' => 'sample_id',
+									'entered_sref' => 'entered_sref',
+									'location_name' => 'location_name')); // from parent->to child
+    			if($parts[2] != '') // set any existing subsample id
+    				$smp['model']['fields']['id'] = array('value' => $parts[2]);
+    			$subsampleModels[$parts[1]]=$smp;
+    		}
+    		if($parts[3] == 'smpAttr') {
+    			$subsampleModels[$parts[1]]['model']['fields']['smpAttr:'.$parts[4]] = array('value' => $value);
+    			if($details[0] != $args['sample_attribute_id_1'] &&
+    					(!isset($args['sample_attribute_id_2']) || $args['sample_attribute_id_2'] == '' || $details[0] != $args['sample_attribute_id_2']))
+    				$subsampleModels[$parts[1]]['data'] = $subsampleModels[$parts[1]]['data'] || ($value != '');
+	    	} else if($parts[3] == 'occ') {
+	    		$occ = array('fkId' => 'sample_id',
 	    					'model' => array('id' => 'occurrence',
 	    									'fields' => array('taxa_taxon_list_id' => array('value' => $details[0]),
 	    											'website_id' => array('value' => $values['website_id']),
 	    											'record_status' => array('value' => $values['occurrence:record_status']),
 	    											'zero_abundance' => array('value' => ($value != '0' ? 'f' : 't')),
 	    											$details[2] => array('value' => $value))));
-	    			if($details[1] != '') $occ['model']['fields']['id'] = array('value' => $details[1]);
-    		    	if($value != '' || $details[1] != '') {
-    		    		if(!isset($subsampleModels[$parts[1]]['model']['subModels']))
-    		    			$subsampleModels[$parts[1]]['model']['subModels'] = array($occ);
-    		    		else
-    		    			$subsampleModels[$parts[1]]['model']['subModels'][] = $occ;
-    		    		$subsampleModels[$parts[1]]['data'] = true;
-    		    	}
-	    		}
-    		}
+	    		if($details[1] != '') $occ['model']['fields']['id'] = array('value' => $details[1]);
+    		    if($value != '' || $details[1] != '') {
+    		    	if(!isset($subsampleModels[$parts[1]]['model']['subModels']))
+    		    		$subsampleModels[$parts[1]]['model']['subModels'] = array($occ);
+    		    	else
+    		    		$subsampleModels[$parts[1]]['model']['subModels'][] = $occ;
+    		    	$subsampleModels[$parts[1]]['data'] = true;
+    		    }
+	    	}
     	}
-    	foreach($subsampleModels as $row => $data)
-    		if(!$subsampleModels[$row]['data'])
-    			unset($subsampleModels[$row]);
-    } else if (isset($values['page']) && $values['page']=='mainSample' && isset($values['sample:id']) && $values['sample:id'] != '') {
-		// submitting the first page, with top level sample details: Filter down any change in Sref and date.
-		$read = array(
-			'nonce' => $values['read_nonce'],
-			'auth_token' => $values['read_auth_token']
-		);
-		$existingSubSamples = data_entry_helper::get_population_data(array(
-			'table' => 'sample',
-			'extraParams' => $read + array('view'=>'detail','parent_id'=>$values['sample:id'],'deleted'=>'f'),
-			'nocache' => true // may have recently added or removed a section
-		));
-		foreach($existingSubSamples as $existingSubSample){
-			// TODO only do if fields actually changed.
-       		$subsampleModels[] = array('fkId' => 'parent_id',
-      				'model' => array('id' => 'sample',
-      						'fields' => array('sample_method_id'=> array('value' => $args['quadrat_level_sample_method_id']),
-      											'id' => array('value' => $existingSubSample['id']))),
-      				'copyFields' => array('survey_id'=>'survey_id',
-      						'date_start'=>'date_start','date_end'=>'date_end','date_type'=>'date_type',
-      						'entered_sref_system' => 'entered_sref_system',
-      						'entered_sref' => 'entered_sref')); // from parent->to child
-      				// TODO location_name
-      	}
     }
-    	
-    if(count($subsampleModels)>0)
-      $submission['subModels'] = array_values($subsampleModels);
+    foreach($subsampleModels as $row => $data)
+    	if(!$subsampleModels[$row]['data'])
+    		unset($subsampleModels[$row]);
+    
+    if(count($subsampleModels)>0) {
+    	$submission['subModels'] = array_merge(isset($submission['subModels']) && is_array($submission['subModels']) ? $submission['subModels'] : array(),
+    											array_values($subsampleModels));
+//if($user->uid == 1)
+//	drupal_set_message(print_r($submission,true), 'warning');
+        }
     return($submission);
   }
 

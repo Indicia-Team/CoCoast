@@ -7,6 +7,10 @@
     background-color: #f4f4f4;
 }
 .species-grid tr td input.highlight, .species-grid tr td select.highlight {
-    border: 2px solid red;
-	background-color: white;
+    border: 2px solid blue;
+	background-color: #ffa0a0;
+	width: 95%;
+}
+.clear-row {
+  color:red !important;
 }
