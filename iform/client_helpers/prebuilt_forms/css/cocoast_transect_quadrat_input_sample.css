@@ -14,3 +14,6 @@
 .clear-row {
   color:red !important;
 }
+#content h1 {
+	color: black;
+}

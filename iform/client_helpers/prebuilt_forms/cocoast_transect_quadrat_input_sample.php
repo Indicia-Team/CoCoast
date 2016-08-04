@@ -44,11 +44,12 @@ class iform_cocoast_transect_quadrat_input_sample {
   public static function get_cocoast_transect_quadrat_input_sample_definition() {
     return array(
       'title'=>'Capturing Our Coast Transect Quadrat Sample Input (1)',
-      'category' => 'Forms for specific surveying methods',
+      'category' => 'Cocoast Specific',
       'description'=>'A form for data entry of transect data by entering counts of each for quadrats on the transect. '.
 					'This form has been created specifically for Capturing Our Coast. '.
 					'Use of this form in other situations runs the risk of the form being changed without notice to meet '.
-    				'the requirements of Capturing Our Coast.'
+    				'the requirements of Capturing Our Coast.',
+      'recommended' => true
     );
   }
 
@@ -335,7 +336,11 @@ class iform_cocoast_transect_quadrat_input_sample {
       return 'FATAL INTERNAL CONFIGURATION ERROR: This form must be used in Drupal with the Easy Login module enabled.';
     if (!function_exists('module_exists') || !module_exists('species_packages'))
       return 'FATAL INTERNAL CONFIGURATION ERROR: This form must be used in Drupal with the custom species_packages module enabled.';
-
+    // assuming easy login
+    $userId = hostsite_get_user_field('indicia_user_id');
+    if (empty($userId))
+    	return '<p>FATAL ERROR: Could not identify user.</p>'; // something is wrong
+    
     $r = (isset($response['error']) ? data_entry_helper::dump_errors($response) : '')
 //    	.'<span style="display:none;">'.(print_r($response,true)).'</span>'
 //    	.'<span>'.(print_r($response,true)).'</span>'
@@ -355,15 +360,9 @@ class iform_cocoast_transect_quadrat_input_sample {
 		// have just successfully posted either a new parent sample, or an update to an existing one.
 		self::$sampleId = $response['outer_id'];
  		data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
- 		$reload = data_entry_helper::get_reload_link_parts();
- 		if(isset($reload['params']['occurrence_id']))
- 			unset($reload['params']['occurrence_id']);
- 		if(isset($reload['params']['sample_id']))
- 			unset($reload['params']['sample_id']);
- 		$reload['params']['new'] = "1";
- 		$newPath = $reload['path'].'?'.data_entry_helper::array_to_query_string($reload['params']);
- 		drupal_set_message(str_replace('{newpath}', $newPath,
- 			lang::get('The Transect you have just entered has been reloaded below to allow you to continue to enter data for it (e.g. upload photos), or you can <a href="{newpath}">enter the visit details for another transect by clicking this link</a>. Alternatively, you can choose one of the options in the main menu above, e.g. Explore all the data entered.')));
+ 		if(!isset($_POST['force_page_reload']))
+ 		  return self::get_success_page($args, $auth, $response['outer_id']);
+ 		drupal_set_message(lang::get('The Transect you have just saved specified the Species Package to be used. The Transect has been reloaded below, and the Species tab now contains the Species Grid for the Species Package, which will allow you to enter the species data.'));
     } else if(isset($_GET['sample_id']) && intval($_GET['sample_id']) == $_GET['sample_id']) {
     	self::$sampleId = $_GET['sample_id'];
     	data_entry_helper::load_existing_record($auth['read'], 'sample', self::$sampleId, 'detail', false, true);
@@ -499,7 +498,50 @@ class iform_cocoast_transect_quadrat_input_sample {
     return $r;
   }
 
-
+  private static function get_success_page($args, $auth, $sample_id) {
+  	$reload = data_entry_helper::get_reload_link_parts();
+  	if(isset($reload['params']['occurrence_id']))
+  		unset($reload['params']['occurrence_id']);
+  	if(isset($reload['params']['sample_id']))
+  		unset($reload['params']['sample_id']);
+  	$reload['params']['new'] = "1";
+  	$newPath = $reload['path'].'?'.data_entry_helper::array_to_query_string($reload['params']);
+  	unset($reload['params']['new']);
+  	$reload['params']['sample_id'] = $sample_id;
+  	$reloadPath = $reload['path'].'?'.data_entry_helper::array_to_query_string($reload['params']);
+  	
+  	$attributes = data_entry_helper::getAttributes(array(
+  			'valuetable'=>'sample_attribute_value',
+  			'attrtable'=>'sample_attribute',
+  			'key'=>'sample_id',
+  			'fieldprefix'=>'smpAttr',
+  			'extraParams'=>$auth['read']+array("untranslatedCaption" => "Shore Height"),
+  			'survey_id'=>$args['survey_id'],
+  			'sample_method_id'=>$args['transect_level_sample_method_id'],
+  			'id'=>$sample_id
+  	));
+  	
+  	$shore = '';
+  	foreach($attributes as $attribute){
+  		if($attribute['untranslatedCaption'] ==  'Shore Height')
+  			$shore = ' ('.$attribute['displayValue'].' '.$attribute['caption'].')';
+  	}
+  			
+  	$r = '<h1>'.lang::get('Thank you!').'</h1>'.
+    		'<h2>'.lang::get('Your survey data is a valuable contribution to the Capturing Our Coast programme.').'</h2>'.
+  			'<p>'.str_replace(array('{name}','{date}', '{shore}'),
+  						array(data_entry_helper::$entity_to_load['sample:location_name'], data_entry_helper::$entity_to_load['sample:date'], $shore),
+  					lang::get('You have completed entering your data for Transect &quot;{name}&quot; {shore} on {date}. '.
+  						'You can now choose to do one of several different things:')).'</p><ul>'.
+  			'<li>'.str_replace('{newpath}', $newPath,
+  					lang::get('You can enter visit details for a new Transect by clicking <a href="{newpath}">here</a>.')).'</li>'. 
+  			'<li>'.str_replace('{reloadpath}', $reloadPath,
+  					lang::get('You can go back into the Transect you have just entered, to modify the data or upload photos, by clicking <a href="{reloadpath}">here</a>.')).'</li>'. 
+  			'<li>'.lang::get('Alternatively, you can choose one of the options in the main menu above, e.g. to explore your records.').'</li>'.
+  			'</ul>';
+  	return $r;
+  }
+  
   /**
    * Return the generated output for the main sample tab.
    * @param array $args List of parameter values passed through to the form depending on how the form has been configured.
@@ -664,6 +706,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     		'<p>' .
     		lang::get('There are multiple possible species packages: you must select the species package (on the first tab) and then save the record before you can enter data on the species tab.') .
     		'</p>' .
+    		data_entry_helper::hidden_text(array('fieldname'=>'force_page_reload')).
     		'</div>';
     
     // Because the initial save sets the species package
@@ -797,9 +840,11 @@ class iform_cocoast_transect_quadrat_input_sample {
     	foreach($t as $taxon) {
     		if($ttlid == $taxon['id']) {
     			$attr = self::_get_species_attribute($user->uid, $args, $packageAttr['default'], $ttlid);
-		    	$r .= '<th class="ui-widget-header" >' .
-    				($taxon['common'] != '' ? $taxon['common'] : '<em>'.$taxon['taxon'].'</em>') .
-    				($taxon['common'] != '' && $taxon['taxon'] != $taxon['common'] ? ' <em>'.$taxon['taxon'].'</em>' : '') .
+		    	$r .= '<th class="ui-widget-header"' .
+    					($taxon['common'] != '' && $taxon['taxon'] != $taxon['common'] ? ' title="'.$taxon['common'].'"' : '') .
+				    '>' . $taxon['taxon'] .
+/*    				($taxon['common'] != '' ? $taxon['common'] : '<em>'.$taxon['taxon'].'</em>') .
+    				($taxon['common'] != '' && $taxon['taxon'] != $taxon['common'] ? ' <em>'.$taxon['taxon'].'</em>' : '') . */
     				(isset($extraDetails[$attr]) ? ' ('.$extraDetails[$attr].')' : '').
     				(isset($extraDetails[$taxon['common']]) ? ' ('.$extraDetails[$taxon['common']].')' : '').
     				'</th>';
@@ -992,7 +1037,7 @@ class iform_cocoast_transect_quadrat_input_sample {
     $qcd = (isset($args['quadrat_caption_differentiator']) && $args['quadrat_caption_differentiator']!="") ?
     			explode(',',$args['quadrat_caption_differentiator']) :
     			array('1');
-    $bumpf = isset($args['media_tab_bumpf']) ? $args['media_tab_bumpf'] :
+    $bumpf = isset($args['media_tab_bumpf']) && $args['media_tab_bumpf'] != "" ? $args['media_tab_bumpf'] :
           			lang::get('Please use the caption field to indicate whether the image is of a particular '.(count($qcd)>1?'aspect of a ':'').$attributesIdx[$args['sample_attribute_id_1']]['caption'].', or the shore/site.'). ' ' .
           			lang::get('When you start typing you should see a set of appropriate options from which you can choose: this will guide you to enter the correct value and format. Alternative just pressing the down arrow key should give the full list.');
     
@@ -1022,7 +1067,15 @@ indiciaData.quadrat_caption_attribute_mapping=".json_encode($mappingsList).";
     $r = '<div id="media">' .
       		'<p class="ui-state-highlight page-notice ui-corner-all">'.
       			$bumpf.
-      			'<br/>'.lang::get('The maximum number of files you can upload is ').(count($scd)+ count($qcd)*$limit1*$limit2).'.<p>'.
+      			'<span style="display:none;">'.
+      			  'MEM:'.ini_get('memory_limit').
+      			  ' FILE:'.ini_get('upload_max_filesize').
+      			  ' POST:'.ini_get('post_max_size').
+//      			  ' DEH:'.data_entry_helper::$maxUploadSize.
+      			'</span>'.
+      			'<br/>'.lang::get('The maximum number of files you can upload is ').(count($scd)+ count($qcd)*$limit1*$limit2).
+                '. The maximum filesize you can upload is 4M - the images will be resized to a maximum of 1500 pixels high or wide, to ensure this is the case.'.
+      			'.<p>'.
     		data_entry_helper::file_box(array(
     			'table' => 'sample_medium',
     			'caption' => lang::get('Photos'),
@@ -1035,7 +1088,9 @@ indiciaData.quadrat_caption_attribute_mapping=".json_encode($mappingsList).";
     				'<input type="hidden" name="{typeNameField}" id="{typeNameField}" value="{typeNameValue}" />' .
     				'<input type="hidden" name="{deletedField}" id="{deletedField}" value="{deletedValue}" class="deleted-value" />' .
     				'<input type="hidden" id="{isNewField}" value="{isNewValue}" />' .
-    				'<label for="{captionField}">Caption:</label><br/><input type="text" list="captions" maxlength="100" style="width: {imagewidth}px" name="{captionField}" id="{captionField}" value="{captionValue}"/>'				
+    				'<label for="{captionField}">Caption:</label><br/><input type="text" list="captions" maxlength="100" style="width: {imagewidth}px" name="{captionField}" id="{captionField}" value="{captionValue}"/>',
+    			'resizeWidth' => '1500',
+    			'resizeHeight' => '1500'
     		)) .
 			(self::$readOnly ? '' : '<br/><input type="submit" value="'.lang::get('Save').'" title="'.lang::get('Saves any data entered across all the tabs.').'" />').
     		'<datalist id="captions"></datalist>'.

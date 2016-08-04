@@ -161,10 +161,12 @@
 		  }
 		};
 	$('#sample\\:location_name').change(updateImageCaptions);
-	attrs = Object.keys(indiciaData.quadrat_caption_attribute_mapping);
-	for(i=0; i<attrs.length; i++) {
-	  // we make the assumption that these are radio buttons.
-	  $('input[type=radio][id=^smpAttr\\:'+attrs[i].substring(4)+'\\:]').change(updateImageCaptions);
+	if(typeof indiciaData.quadrat_caption_attribute_mapping !== 'undefined') {
+		attrs = Object.keys(indiciaData.quadrat_caption_attribute_mapping);
+		for(i=0; i<attrs.length; i++) {
+			// we make the assumption that these are radio buttons.
+			$('input[type=radio][id=^smpAttr\\:'+attrs[i].substring(4)+'\\:]').change(updateImageCaptions);
+		}
 	}
 	$('#sample\\:location_name').change();
 
